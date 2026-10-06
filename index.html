@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Gem Duck - Bay Né Chướng Ngại</title>
+<style>
+  *{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,sans-serif}
+  body{background:linear-gradient(#8ed8ff,#e9fbff);display:flex;align-items:center;justify-content:center}
+  #game{position:relative;width:100vw;height:100vh;max-width:900px;overflow:hidden;background:linear-gradient(#72d2ff 0 70%,#9be46f 70%);touch-action:none}
+  canvas{width:100%;height:100%;display:block}
+  #ui{position:absolute;inset:0;pointer-events:none;text-align:center;color:#fff;text-shadow:2px 2px #246}
+  #score{font-size:48px;font-weight:900;padding-top:22px}
+  #hint{position:absolute;bottom:25px;width:100%;font-size:18px}
+  #menu{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#0005}
+  #menu h1{font-size:42px;margin:0 0 8px;color:#ffe45c;text-shadow:3px 3px #7b5a00}
+  #menu p{font-size:18px;color:white;text-align:center;margin:5px 18px 18px}
+  button{border:0;border-radius:18px;padding:14px 32px;font-size:21px;font-weight:bold;background:#ffd83d;color:#573d00;box-shadow:0 5px #b88b00}
+  button:active{transform:translateY(3px);box-shadow:0 2px #b88b00}
+  #gameover{display:none}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="c"></canvas>
+  <div id="ui"><div id="score">0</div><div id="hint">Chạm màn hình / Space / ↑ để bay</div></div>
+  <div id="menu">
+    <h1>💎 GEM DUCK</h1>
+    <p>Con vịt Gem bay qua các cột!<br>Chạm màn hình hoặc nhấn Space để bay lên.</p>
+    <button id="start">CHƠI NGAY</button>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const menu=document.getElementById('menu'),start=document.getElementById('start');
+const scoreEl=document.getElementById('score');
+let W,H,dpr,duck,pipes,score,running=false,last=0,spawn=0,best=Number(localStorage.gemDuckBest||0);
+
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  canvas.width=W*dpr; canvas.height=H*dpr; canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize',resize); resize();
+
+function reset(){
+  duck={x:Math.max(85,W*.22),y:H*.45,vy:0,r:19};
+  pipes=[];score=0;spawn=0;running=true;last=performance.now();menu.style.display='none';scoreEl.textContent=0;
+  requestAnimationFrame(loop);
+}
+function flap(){ if(!running){reset();return} duck.vy=-430; }
+document.getElementById('game').addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;e.preventDefault();flap()},{passive:false});
+addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();flap()}});
+
+start.onclick=(e)=>{e.stopPropagation();reset()};
+
+function addPipe(){
+  const gap=Math.max(135,H*.22), min=75, max=H-gap-95;
+  const top=min+Math.random()*Math.max(30,max-min);
+  pipes.push({x:W+45,w:68,top,gap,passed:false});
+}
+function hitPipe(p){
+  const dx=Math.max(p.x,Math.min(duck.x,p.x+p.w));
+  const topHit=duck.y-duck.r<p.top;
+  const bottomHit=duck.y+duck.r>p.top+p.gap;
+  return duck.x+duck.r>p.x && duck.x-duck.r<p.x+p.w && (topHit||bottomHit);
+}
+function drawDuck(){
+  ctx.save();ctx.translate(duck.x,duck.y);ctx.rotate(Math.max(-.35,Math.min(.55,duck.vy/700)));
+  // wing
+  ctx.fillStyle='#f4bd35';ctx.beginPath();ctx.ellipse(-3,7,13,8,-.2,0,Math.PI*2);ctx.fill();
+  // body
+  ctx.fillStyle='#ffd84a';ctx.beginPath();ctx.arc(0,0,19,0,Math.PI*2);ctx.fill();
+  // head
+  ctx.beginPath();ctx.arc(8,-14,15,0,Math.PI*2);ctx.fill();
+  // eye
+  ctx.fillStyle='#222';ctx.beginPath();ctx.arc(13,-18,2.8,0,Math.PI*2);ctx.fill();
+  // beak
+  ctx.fillStyle='#ff8a27';ctx.beginPath();ctx.moveTo(20,-13);ctx.lineTo(34,-8);ctx.lineTo(20,-4);ctx.closePath();ctx.fill();
+  // gem
+  ctx.fillStyle='#39e7ff';ctx.beginPath();ctx.moveTo(1,-29);ctx.lineTo(8,-37);ctx.lineTo(15,-29);ctx.lineTo(8,-20);ctx.closePath();ctx.fill();
+  ctx.restore();
+}
+function drawPipe(p){
+  const ground=H*.72;
+  ctx.fillStyle='#56bd55';
+  ctx.fillRect(p.x,0,p.w,p.top);
+  ctx.fillRect(p.x,p.top+p.gap,p.w,ground-(p.top+p.gap));
+  ctx.fillStyle='#3c9e48';
+  ctx.fillRect(p.x-7,p.top-15,p.w+14,15);
+  ctx.fillRect(p.x-7,p.top+p.gap,p.w+14,15);
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // clouds
+  ctx.fillStyle='#ffffffaa';
+  for(let i=0;i<4;i++){let x=((i*270-(performance.now()/35)%300)+W)%W;let y=80+i%2*100;
+    ctx.beginPath();ctx.arc(x,y,22,0,Math.PI*2);ctx.arc(x+24,y-8,30,0,Math.PI*2);ctx.arc(x+55,y,20,0,Math.PI*2);ctx.fill();}
+  pipes.forEach(drawPipe);drawDuck();
+  ctx.fillStyle='#70bd48';ctx.fillRect(0,H*.72,W,H*.28);
+}
+function gameOver(){
+  running=false;
+  best=Math.max(best,score);localStorage.gemDuckBest=best;
+  menu.style.display='flex';
+  menu.querySelector('h1').textContent='💥 THUA RỒI!';
+  menu.querySelector('p').innerHTML=`Điểm: <b>${score}</b> &nbsp; Kỷ lục: <b>${best}</b><br>Chạm nút để chơi lại`;
+  start.textContent='CHƠI LẠI';
+}
+function loop(t){
+  if(!running)return;
+  const dt=Math.min((t-last)/1000,.03);last=t;
+  duck.vy+=1150*dt;duck.y+=duck.vy*dt;
+  spawn+=dt;
+  if(spawn>.92){spawn=0;addPipe()}
+  const speed=220+Math.min(score*4,170);
+  pipes.forEach(p=>{p.x-=speed*dt;if(!p.passed&&p.x+p.w<duck.x){p.passed=true;score++;scoreEl.textContent=score}});
+  pipes=pipes.filter(p=>p.x+p.w>-30);
+  if(duck.y-duck.r<0 || duck.y+duck.r>H*.72 || pipes.some(hitPipe))gameOver();
+  draw();requestAnimationFrame(loop);
+}
+draw();
+</script>
+</body>
+</html>
